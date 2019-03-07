@@ -1,6 +1,9 @@
 package org.dicthub.plugin.com_baidu_fanyi
 
 import org.dicthub.plugin.shared.util.*
+import org.w3c.dom.get
+import org.w3c.dom.set
+import kotlin.browser.localStorage
 import kotlin.js.Json
 import kotlin.js.Promise
 import kotlin.js.json
@@ -33,8 +36,35 @@ class BaiduTranslationProvider constructor(
     }
 
     override fun translate(query: Query): Promise<String> {
+        return Promise { resolve, _ ->
+            translateUsingCachedToken(query).then(resolve).catch {
+                translateUsingNewToken(query).then(resolve)
+            }
+        }
+    }
 
-        return newTokenPromise().next(callBaiduApi(query)).map { parseTranslationData(it) }.then {
+    private val tokenStorageKey = "plugin-baidu-token"
+    private fun translateUsingCachedToken(query: Query): Promise<String> {
+        return Promise { resolve, reject ->
+            localStorage[tokenStorageKey]?.let { tokenStr ->
+                tokenStr.match("(.*):(.*)")?.let { Token(it[1], it[2]) }
+            }?.let { token ->
+                console.log("Translate using cached baidu token $token")
+                callBaiduApi(query, token).map{ parseTranslationData(it) }.then {
+                    resolve(renderer.render(it))
+                }
+            } ?: run {
+                reject(IllegalStateException("No cached baidu token"))
+            }
+        }
+    }
+
+    private fun translateUsingNewToken(query: Query): Promise<String> {
+        return newTokenPromise().next{ token ->
+            console.info("Translate using new baidu token $token")
+            localStorage[tokenStorageKey] = "${token.token}:${token.gtk}"
+            callBaiduApi(query, token)
+        }.map { parseTranslationData(it) }.then {
             renderer.render(it)
         }.catch {
             renderFailure(id(), sourceUrl(query), query, it)
@@ -65,13 +95,12 @@ class BaiduTranslationProvider constructor(
                 translation = translation.value<String>("dst") ?: throw TranslationParsingFailureException(),
                 pron = pron,
                 details = details ?: emptyList()
-        );
+        )
     }
 
-    private fun callBaiduApi(query: Query) = { token: Token ->
+    private fun callBaiduApi(query: Query, token: Token) =
         httpClient.post("$BASE_URL/v2transapi", mapOf("Content-Type" to "application/x-www-form-urlencoded"),
                 buildFormData(query.getFrom(), query.getTo(), query.getText(), signQuery(query.getText(), token.gtk), token.token))
-    }
 
     private fun buildFormData(from: String, to: String, query: String, sign: String, token: String) =
             "from=${baiduLangCode(from)}&to=${baiduLangCode(to)}&query=$query&simple_means_flag=3&sign=$sign&token=$token"
@@ -103,7 +132,7 @@ private val langCodeMap = json(
         "it" to "it",
         "vi" to "vie",
         "zh-CN" to "zh",
-        "zh-TW" to "zh"
+        "zh-TW" to "cht"
 )
 
 // private val supportedLang: Json = js("{'zh': ['en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'en': ['zh','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'ara': ['zh','en','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'est': ['zh','en','ara','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'bul': ['zh','en','ara','est','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'pl': ['zh','en','ara','est','bul','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'dan': ['zh','en','ara','est','bul','pl','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'de': ['zh','en','ara','est','bul','pl','dan','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'ru': ['zh','en','ara','est','bul','pl','dan','de','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'fra': ['zh','en','ara','est','bul','pl','dan','de','ru','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'fin': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'kor': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'nl': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'cs': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'rom': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'pt': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'jp': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','swe','slo','th','wyw','spa','el','hu','it','yue','cht','jpka','vie'],'swe': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','slo','th','wyw','spa','el','hu','it','yue','cht','vie'],'slo': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','th','wyw','spa','el','hu','it','yue','cht','vie'],'th': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','wyw','spa','el','hu','it','yue','cht','vie'],'wyw': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','spa','el','hu','it','yue','cht','vie'],'spa': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','el','hu','it','yue','cht','vie'],'el': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','hu','it','yue','cht','vie'],'hu': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','it','yue','cht','vie'],'it': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','yue','cht','vie'],'yue': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','cht','vie'],'cht': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','vie'],'vie': ['zh','en','ara','est','bul','pl','dan','de','ru','fra','fin','kor','nl','cs','rom','pt','jp','swe','slo','th','wyw','spa','el','hu','it','yue','cht']    }")
