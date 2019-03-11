@@ -80,12 +80,29 @@ class BaiduTranslationProvider constructor(
         val translation = translationResult.value<Array<Json>>("data")?.firstOrNull()
                 ?: throw TranslationNotFoundException()
         val symbol = data.value<Json>("dict_result")?.value<Json>("simple_means")?.value<Array<Json>>("symbols")?.firstOrNull()
-        val pron = symbol?.value<String>("ph_am") ?: symbol?.value<String>("ph_en")
-        val details = symbol?.value<Array<Json>>("parts")?.map {
-            TranslationDetails(
-                    poc = it.value<String>("part") ?: "",
-                    meanings = it.value<Array<String>>("means")?.toList() ?: emptyList()
-            )
+        val pron = when(to) {
+            "en" -> symbol?.value<String>("ph_am") ?: symbol?.value<String>("ph_en")
+            "zh" -> symbol?.value<String>("word_symbol")
+            else -> null
+        }
+        val details: List<TranslationDetails>? = when(from) {
+            "zh" -> symbol?.value<Array<Json>>("parts")
+                    ?.flatMap { it.value<Array<Json>>("means")?.toList() ?: emptyList()}
+                    ?.groupBy { it["part"] as? String }
+                    ?.map {
+                console.log(it)
+                TranslationDetails(
+                        poc = it.key ?: "",
+                        meanings = it.value.mapNotNull { it["text"] as? String }
+                )
+            }
+            else -> symbol?.value<Array<Json>>("parts")?.map {
+                console.log(it)
+                TranslationDetails(
+                        poc = it.value<String>("part") ?: "",
+                        meanings = it.value<Array<String>>("means")?.toList() ?: emptyList()
+                )
+            }
         }
 
         return BaiduTranslation(
