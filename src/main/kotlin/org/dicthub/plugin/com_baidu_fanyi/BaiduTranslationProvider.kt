@@ -32,42 +32,50 @@ class BaiduTranslationProvider constructor(
     override fun canTranslate(query: Query): Boolean {
 
         // Skip checking supported lang
-        return langCodeMap[query.getFrom()] is String && langCodeMap[query.getTo()] is String
+        return langCodeMap[query.getFrom()] is String
+                && langCodeMap[query.getTo()] is String
+                && query.getFrom() != query.getTo()
     }
 
     override fun translate(query: Query): Promise<String> {
+        val translateWithNewToken = fun(resolve: (String) -> Unit) {
+            newTokenPromise().then { newToken ->
+                saveToken(newToken)
+                console.info("Translate and saved new token: $newToken")
+                translaeWithToken(newToken, query, true).then(resolve)
+            }
+        }
         return Promise { resolve, _ ->
-            translateUsingCachedToken(query).then(resolve).catch {
-                translateUsingNewToken(query).then(resolve)
+            loadCachedToken()?.let { cachedToken ->
+                console.info("Translate using cached baidu token: $cachedToken")
+                translaeWithToken(cachedToken, query, false).then(resolve).catch {
+                    translateWithNewToken(resolve)
+                }
+            }?: run {
+                translateWithNewToken(resolve)
             }
         }
     }
 
     private val tokenStorageKey = "plugin-baidu-token"
-    private fun translateUsingCachedToken(query: Query): Promise<String> {
-        return Promise { resolve, reject ->
-            localStorage[tokenStorageKey]?.let { tokenStr ->
-                tokenStr.match("(.*):(.*)")?.let { Token(it[1], it[2]) }
-            }?.let { token ->
-                console.log("Translate using cached baidu token $token")
-                callBaiduApi(query, token).map{ parseTranslationData(it) }.then {
-                    resolve(renderer.render(it))
-                }
-            } ?: run {
-                reject(IllegalStateException("No cached baidu token"))
-            }
-        }
+    private fun loadCachedToken(): Token? {
+        return localStorage[tokenStorageKey]?.match("(.*):(.*)")?.let { Token(it[1], it[2]) }
+    }
+    private fun saveToken(token: Token) {
+        localStorage[tokenStorageKey] = "${token.token}:${token.gtk}"
     }
 
-    private fun translateUsingNewToken(query: Query): Promise<String> {
-        return newTokenPromise().next{ token ->
-            console.info("Translate using new baidu token $token")
-            localStorage[tokenStorageKey] = "${token.token}:${token.gtk}"
-            callBaiduApi(query, token)
-        }.map { parseTranslationData(it) }.then {
-            renderer.render(it)
-        }.catch {
-            renderFailure(id(), sourceUrl(query), query, it)
+    private fun translaeWithToken(token: Token, query: Query, renderError: Boolean): Promise<String> {
+        return Promise { resolve, reject ->
+            callBaiduApi(query, token).convert { parseTranslationData(it) }.then {
+                resolve(renderer.render(it))
+            }.catch {
+                if (renderError) {
+                    resolve(renderFailure(id(), sourceUrl(query), query, it))
+                } else {
+                    reject(it)
+                }
+            }
         }
     }
 
@@ -90,14 +98,12 @@ class BaiduTranslationProvider constructor(
                     ?.flatMap { it.value<Array<Json>>("means")?.toList() ?: emptyList()}
                     ?.groupBy { it["part"] as? String }
                     ?.map {
-                console.log(it)
                 TranslationDetails(
                         poc = it.key ?: "",
                         meanings = it.value.mapNotNull { it["text"] as? String }
                 )
             }
             else -> symbol?.value<Array<Json>>("parts")?.map {
-                console.log(it)
                 TranslationDetails(
                         poc = it.value<String>("part") ?: "",
                         meanings = it.value<Array<String>>("means")?.toList() ?: emptyList()
