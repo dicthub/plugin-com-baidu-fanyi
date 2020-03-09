@@ -4,8 +4,8 @@ import org.jetbrains.kotlin.gradle.plugin.KotlinSourceSet
 group = "org.dicthub"
 version = "1.0-SNAPSHOT"
 
-val kotlinVersion = "1.3.20"
-val kotlinHtmlVersion = "0.6.12"
+val kotlinVersion = "1.3.70"
+val kotlinHtmlVersion = "0.7.1"
 
 val SourceSet.kotlin: SourceDirectorySet
     get() =
@@ -15,7 +15,7 @@ val SourceSet.kotlin: SourceDirectorySet
                 .kotlin
 
 plugins {
-    id("kotlin2js") version "1.3.20"
+    id("kotlin2js") version "1.3.70"
      `maven-publish`
 }
 
@@ -24,10 +24,10 @@ repositories {
 }
 
 dependencies {
-    compile(kotlin("stdlib-js"))
-    compile("org.jetbrains.kotlinx:kotlinx-html-js:$kotlinHtmlVersion")
+    compileOnly(kotlin("stdlib-js"))
+    compileOnly("org.jetbrains.kotlinx:kotlinx-html-js:$kotlinHtmlVersion")
 
-    testCompile("org.jetbrains.kotlin:kotlin-test-js:$kotlinVersion")
+    testCompileOnly("org.jetbrains.kotlin:kotlin-test-js:$kotlinVersion")
 }
 
 sourceSets {
