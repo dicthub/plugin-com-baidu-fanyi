@@ -15,7 +15,7 @@ jobs:
       PLUGIN_ID: plugin-com-baidu-fanyi
       REPO_USER_NAME: dicthub-plugin-publish
       REPO_USER_EMAIL: 47938489+dicthub-plugin-publish@users.noreply.github.com
-      REPO_NAME: dicthub/DictHubPluginRepository
+      REPO_NAME: dicthub/DictHubPluginArtifacts
       REPO_BRANCH: autopublish
       REPO_PATH: ./publish-repo
 
